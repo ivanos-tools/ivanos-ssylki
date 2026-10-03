@@ -32,11 +32,21 @@ download_count = 0 и через 5 минут; ключ развёртывани
   GASITEL_SUHO=1    — только показать, ничего не удалять
 
 Выход: 0 — прошёл; 1 — были ошибки API (датчик это видит).
+
+Режим сторожа (--storozh), слово владельца 03-10 «Вариант А»: расписание GitHub Actions с 26.08.2026 у многих
+не создаёт прогонов (community discussions 206019, 202034; у нас — 0 за 2,5 ч, ручной прогон зелёный). Поэтому
+прогон запускает САМ ВЫПУСК (событие release), сторожит живые ссылки циклом и выходит, когда живых нет.
+У предела работы (6 ч у GitHub) при живых ссылках перезапускает себя workflow_dispatch встроенным
+GITHUB_TOKEN («workflow_dispatch and repository_dispatch events always create workflow runs» —
+docs.github.com/en/actions/concepts/security/github_token).
+  GASITEL_DO_MIN  — сколько минут сторожить до перезапуска (по умолчанию 330: предел задания 350)
+  GASITEL_SHAG_S  — пауза между проходами (по умолчанию 60)
 """
 import datetime as dt
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -107,13 +117,16 @@ def razobrat(rel):
         return {}
 
 
-def main():
+def prohod():
+    """Один проход по ссылкам. → число живых (None — список не получен)."""
     global OSHIBKI
     seychas = dt.datetime.now(dt.timezone.utc)
+    zhivyh = 0
     k, reliz = zapros("GET", f"/repos/{REPO}/releases?per_page=100", T_SSYLKI)
     if k != 200:
+        OSHIBKI += 1
         skazat(f"🔴 список релизов {REPO} не получен: {k}")
-        return 1
+        return None
     nashi = [(r, razobrat(r)) for r in reliz]
     nashi = [(r, s) for r, s in nashi if s is not None]
     skazat(f"гаситель {seychas:%Y-%m-%dT%H:%M:%SZ}: ссылок {len(nashi)}"
@@ -156,12 +169,42 @@ def main():
                 if T_KLYUCHI:
                     snyat_klyuchi(klyuchi, teg)
                 continue
+        zhivyh += 1
         skazat(f"  жива {teg}: {sv.get('vid','?')}, до {srok or 'без срока'}")
     otm = os.environ.get("GASITEL_OTMETKA")
     if otm and not SUHO:
         with open(otm, "w") as f:
             f.write(f"{seychas:%Y-%m-%dT%H:%M:%SZ} ошибок={OSHIBKI}\n")
-    return 1 if OSHIBKI else 0
+    return zhivyh
+
+
+def perezapusk():
+    """Живые ссылки остались у предела — новый прогон workflow_dispatch встроенным токеном."""
+    global OSHIBKI
+    wf = os.environ.get("GASITEL_WORKFLOW", "gasitel.yml")
+    k, _ = zapros("POST", f"/repos/{REPO}/actions/workflows/{wf}/dispatches", T_SSYLKI, {"ref": os.environ.get("GASITEL_REF", "main")})
+    if k == 204:
+        skazat("↻ живые ссылки остались — новый прогон гасителя запрошен (workflow_dispatch, 204)")
+    else:
+        OSHIBKI += 1
+        skazat(f"🔴 перезапуск гасителя НЕ запрошен ({k}) — живые ссылки останутся без сторожа")
+
+
+def main():
+    if "--storozh" not in sys.argv[1:]:
+        z = prohod()
+        return 1 if (z is None or OSHIBKI) else 0
+    do = time.monotonic() + float(os.environ.get("GASITEL_DO_MIN", "330")) * 60
+    shag = float(os.environ.get("GASITEL_SHAG_S", "60"))
+    while True:
+        z = prohod()
+        if z == 0:
+            skazat("живых ссылок нет — сторож выходит")
+            return 1 if OSHIBKI else 0
+        if time.monotonic() + shag >= do:
+            perezapusk()
+            return 1 if OSHIBKI else 0
+        time.sleep(shag)
 
 
 if __name__ == "__main__":
