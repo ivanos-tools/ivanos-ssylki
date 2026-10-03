@@ -1,27 +1,33 @@
 # Гаситель одноразовых ссылок установки IvanOS.
-# Выбор владельца 03-10 («А»): гаситель живёт ТОЛЬКО здесь, на встроенном GITHUB_TOKEN; гасит ссылку
-# по первому скачиванию (download_count ≥ 1) и по сроку. Окно ~10 мин принято владельцем
-# (замер 03-10: download_count виден через 9–11 мин, удалённый пакет отдаётся ещё ~2 мин).
-# Датчик «гаситель молчит» — ssylki/datchik-gasitelya.sh: без свежего успешного прогона здесь
-# новые ссылки не выпускаются.
+# Слово владельца 03-10 («А»): только здесь, на встроенном GITHUB_TOKEN; гасит по первому скачиванию
+# (download_count ≥ 1) и по сроку; окно ~10 мин принято владельцем.
+# «Вариант А» 03-10: расписание GitHub с 26.08.2026 у многих не создаёт прогонов (community 206019, 202034;
+# у нас 0 за 2,5 ч) — прогон запускает сам ВЫПУСК ссылки (release), сторожит циклом, выходит, когда живых нет;
+# у предела задания при живых ссылках перезапускает себя (workflow_dispatch встроенным токеном).
+# Расписание оставлено запасным: починит GitHub — не мешает.
 name: gasitel
 on:
+  release:
+    types: [published]
+  workflow_dispatch:
   schedule:
     - cron: '*/5 * * * *'
-  workflow_dispatch:
 permissions:
   contents: write
+  actions: write
 concurrency:
   group: gasitel
   cancel-in-progress: false
 jobs:
   gasit:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
-      - name: гасить
+      - name: сторожить ссылки
         env:
           GH_TOKEN_SSYLKI: ${{ github.token }}
           SSYLKI_REPO: ${{ github.repository }}
-        run: python3 gasitel.py
+          GASITEL_DO_MIN: '330'
+          GASITEL_SHAG_S: '60'
+        run: python3 gasitel.py --storozh
