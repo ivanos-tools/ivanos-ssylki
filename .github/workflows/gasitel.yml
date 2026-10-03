@@ -1,0 +1,27 @@
+# Гаситель одноразовых ссылок установки IvanOS.
+# Выбор владельца 03-10 («А»): гаситель живёт ТОЛЬКО здесь, на встроенном GITHUB_TOKEN; гасит ссылку
+# по первому скачиванию (download_count ≥ 1) и по сроку. Окно ~10 мин принято владельцем
+# (замер 03-10: download_count виден через 9–11 мин, удалённый пакет отдаётся ещё ~2 мин).
+# Датчик «гаситель молчит» — ssylki/datchik-gasitelya.sh: без свежего успешного прогона здесь
+# новые ссылки не выпускаются.
+name: gasitel
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: gasitel
+  cancel-in-progress: false
+jobs:
+  gasit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: гасить
+        env:
+          GH_TOKEN_SSYLKI: ${{ github.token }}
+          SSYLKI_REPO: ${{ github.repository }}
+        run: python3 gasitel.py
